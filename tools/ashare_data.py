@@ -132,7 +132,7 @@ def cmd_quote(code: str):
     d = _parse_qq_quote(raw)
     if not d:
         print(f"❌ 未找到股票 {code}")
-        return
+        return False
 
     print("=" * 60)
     print(f"实时行情: {d['name']} ({d['code']})")
@@ -153,6 +153,7 @@ def cmd_quote(code: str):
     print(f"  换手率:     {d['turnover_rate']}%")
     print(f"  52周最高:   {d['high_52w']}")
     print(f"  52周最低:   {d['low_52w']}")
+    return True
 
 
 def cmd_valuation(code: str):
@@ -162,7 +163,7 @@ def cmd_valuation(code: str):
     d = _parse_qq_quote(raw)
     if not d:
         print(f"❌ 未找到股票 {code}")
-        return
+        return False
 
     price = d["price"]
     market_cap_yi = d["market_cap"]
@@ -178,18 +179,16 @@ def cmd_valuation(code: str):
     print(f"  52周最高:   {d['high_52w']}")
     print(f"  52周最低:   {d['low_52w']}")
 
-    # 市值验算
+    # 行情接口不提供独立总股本；这里只能由市值和股价反推。
     try:
         p = Decimal(price)
         cap = Decimal(market_cap_yi) * Decimal("1e8")
         shares = cap / p
-        print(f"\n  推算总股本: {_fmt_yi(float(shares))}股")
-        calc_cap = p * shares
-        reported_cap = Decimal(market_cap_yi) * Decimal("1e8")
-        diff = abs(calc_cap - reported_cap) / reported_cap * 100
-        print(f"  市值验算:   ✅ 一致（推算法，偏差 {float(diff):.1f}%）")
+        print(f"\n  行情市值反推总股本: {_fmt_yi(float(shares))}股")
+        print("  说明:       这是推算值，不是独立市值验算")
     except Exception:
         pass
+    return True
 
 
 def cmd_financials(code: str):
@@ -200,7 +199,12 @@ def cmd_financials(code: str):
     name = d.get("name", code) if d else code
 
     code_clean = code.strip().replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
-    market = "SH" if code_clean.startswith(("6", "9", "5")) else "SZ"
+    if code_clean.startswith(("6", "9", "5")):
+        market = "SH"
+    elif code_clean.startswith(("4", "8")):
+        market = "BJ"
+    else:
+        market = "SZ"
 
     # 东方财富 datacenter API（年报数据）
     fin_url = "https://datacenter.eastmoney.com/securities/api/data/get"
@@ -237,7 +241,7 @@ def cmd_financials(code: str):
 
     if not reports:
         print("  ⚠️ 未能获取财务数据，建议通过 WebSearch 补充")
-        return
+        return False
 
     for r in reports[:5]:
         date = r.get("REPORT_DATE", "")[:10]
@@ -265,6 +269,7 @@ def cmd_financials(code: str):
             print(f"  每股净资产:     {bps:.2f}")
         if roe is not None:
             print(f"  ROE(加权):      {_fmt_pct(roe)}")
+    return True
 
 
 def cmd_search(keyword: str):
@@ -281,7 +286,7 @@ def cmd_search(keyword: str):
 
     if not results:
         print(f"❌ 未找到匹配 '{keyword}' 的股票")
-        return
+        return False
 
     print("=" * 60)
     print(f"搜索结果: '{keyword}'")
@@ -292,6 +297,7 @@ def cmd_search(keyword: str):
         market = r.get("MktNum", "")
         mkt_label = {"1": "沪", "2": "深", "3": "北"}.get(str(market), "")
         print(f"  {code} {name} [{mkt_label}]")
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -329,8 +335,8 @@ def main():
         "valuation": lambda: cmd_valuation(args.code),
         "search": lambda: cmd_search(args.keyword),
     }
-    cmds[args.command]()
+    return 0 if cmds[args.command]() else 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

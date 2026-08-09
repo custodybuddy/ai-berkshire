@@ -17,6 +17,7 @@ stock_screener.py — 动量发现 + 价值验证 选股筛
   3. 信号分级替代二元判断
 """
 
+import argparse
 import json
 import os
 import subprocess
@@ -64,11 +65,11 @@ def fetch_prices_curl(ticker, days=120):
         chart = data.get("chart", {}).get("result", [{}])[0]
         timestamps = chart.get("timestamp", [])
         quote = chart.get("indicators", {}).get("quote", [{}])[0]
+        closes = quote.get("close", [])
+        volumes = quote.get("volume", [])
+        highs = quote.get("high", [])
         rows = []
-        for i, ts in enumerate(timestamps):
-            c = quote.get("close", [None] * len(timestamps))[i]
-            v = quote.get("volume", [None] * len(timestamps))[i]
-            h = quote.get("high", [None] * len(timestamps))[i]
+        for ts, c, v, h in zip(timestamps, closes, volumes, highs):
             if c and v and h:
                 dt = datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
                 rows.append({"date": dt, "close": c, "high": h, "volume": v})
@@ -143,8 +144,9 @@ def check_momentum(prices):
 
     # 近5日有突破日（不一定是今天）
     recent_breakout = False
-    for i in range(-5, 0):
-        if prices[i]["close"] > max(p["high"] for p in prices[i-60:i]):
+    first_recent_index = max(60, len(prices) - 5)
+    for i in range(first_recent_index, len(prices)):
+        if prices[i]["close"] > max(p["high"] for p in prices[i - 60:i]):
             recent_breakout = True
             break
 
@@ -216,8 +218,6 @@ def check_value(ticker, signal_date=None):
     # 6. ★改进：毛利率连续2季改善（解决NVDA 2023-01漏判）
     if pd and pd2:
         checks["毛利连续改善"] = d["gm"] > pd["gm"] > pd2["gm"]
-    elif pd:
-        checks["毛利连续改善"] = d["gm"] > pd["gm"]
     else:
         checks["毛利连续改善"] = False
 
@@ -329,14 +329,26 @@ def scan_ticker(ticker, verbose=True):
 # 主程序
 # ============================================================
 
-def main():
-    args = sys.argv[1:]
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        description="动量发现 + 价值验证选股筛",
+    )
+    parser.add_argument("tickers", nargs="*", help="要扫描的股票代码")
+    parser.add_argument(
+        "--update",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="TICKER",
+        help="交互式补充或更新基本面数据",
+    )
+    args = parser.parse_args(argv)
 
     # 更新模式
-    if args and args[0] == "--update":
-        ticker = args[1] if len(args) > 1 else input("  标的代码: ").strip().upper()
+    if args.update is not None:
+        ticker = args.update.upper() if args.update else input("  标的代码: ").strip().upper()
         update_fundamental_interactive(ticker)
-        return
+        return 0
 
     # 初始化默认watchlist
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -346,8 +358,8 @@ def main():
         print(f"  已创建默认watchlist: {WATCHLIST_FILE}")
 
     # 确定扫描范围
-    if args:
-        tickers = [t.upper() for t in args]
+    if args.tickers:
+        tickers = [ticker.upper() for ticker in args.tickers]
     else:
         with open(WATCHLIST_FILE) as f:
             wl = json.load(f)
@@ -395,7 +407,8 @@ def main():
     print(f"\n  基本面数据文件：{FUND_FILE}")
     print(f"  Watchlist文件：{WATCHLIST_FILE}")
     print(f"  用 --update TICKER 补充/更新基本面\n")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -31,9 +31,11 @@ OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "dat
 def fetch_page(page: int) -> dict:
     url = API_BASE.format(page=page, page_size=PAGE_SIZE)
     result = subprocess.run(
-        ["curl", "-s", "-H", "User-Agent: Mozilla/5.0", url],
+        ["curl", "-fsS", "-H", "User-Agent: Mozilla/5.0", url],
         capture_output=True, text=True, timeout=30,
     )
+    if result.returncode != 0:
+        raise ConnectionError(result.stderr.strip() or f"curl exited {result.returncode}")
     return json.loads(result.stdout)
 
 
@@ -135,9 +137,12 @@ def main():
     print(f"  共 {len(stocks)} 只股票（按潜在涨幅排序）\n")
 
     # 统计摘要
+    print(f"  📊 统计摘要:")
+    if not stocks:
+        print("     没有可统计的有效股票记录")
+        return
     undervalued = [s for s in stocks if s["upside_pct"] > 0]
     overvalued = [s for s in stocks if s["upside_pct"] < 0]
-    print(f"  📊 统计摘要:")
     print(f"     低估股票: {len(undervalued)} 只 ({len(undervalued)/len(stocks)*100:.0f}%)")
     print(f"     高估股票: {len(overvalued)} 只 ({len(overvalued)/len(stocks)*100:.0f}%)")
     if undervalued:

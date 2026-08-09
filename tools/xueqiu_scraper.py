@@ -34,9 +34,9 @@ import json
 import os
 import random
 import re
+import sys
 from datetime import datetime
 from pathlib import Path
-from playwright.async_api import async_playwright
 
 
 def is_match(text, keywords):
@@ -57,6 +57,18 @@ def clean(s):
     for ent, rep in [('&amp;', '&'), ('&lt;', '<'), ('&gt;', '>'), ('&nbsp;', ' ')]:
         s = s.replace(ent, rep)
     return re.sub(r'&#\d+;', '', s).strip()
+
+
+def write_json_atomic(path, payload, *, indent=None):
+    """Write resumable scraper state without leaving a partial JSON file."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_name(f'.{target.name}.tmp')
+    with temporary.open('w', encoding='utf-8') as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=indent)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, target)
 
 
 async def browser_fetch_json(page, url, timeout_s=15):
@@ -197,7 +209,9 @@ async def fetch_all_timeline(page, user_id, keywords, progress_path, dump_all_pa
     all_posts = {}
     if dump_all_path and os.path.exists(dump_all_path):
         try:
-            for e in json.load(open(dump_all_path)):
+            with open(dump_all_path, encoding='utf-8') as handle:
+                cached_posts = json.load(handle)
+            for e in cached_posts:
                 all_posts[e['id']] = e
             print(f"  ↪ 载入已有全量缓存：{len(all_posts)} 条")
         except Exception as e:
@@ -255,40 +269,39 @@ async def fetch_all_timeline(page, user_id, keywords, progress_path, dump_all_pa
             start_page = max(2, prev.get('next_page', 2))
             for e in prev.get('collected', []):
                 collected[e['id']] = e
-                found += 1
+            found = len(collected)
             print(f"  ↪ 续爬：从第 {start_page} 页开始，已有 {found} 条")
         except Exception as e:
             print(f"  进度文件读取失败: {e}")
 
     def save_progress(next_page):
-        with open(progress_path, 'w', encoding='utf-8') as f:
-            json.dump({'next_page': next_page, 'collected': list(collected.values())},
-                      f, ensure_ascii=False)
+        write_json_atomic(
+            progress_path,
+            {'next_page': next_page, 'collected': list(collected.values())},
+        )
         if dump_all_path:
-            with open(dump_all_path, 'w', encoding='utf-8') as f:
-                json.dump(list(all_posts.values()), f, ensure_ascii=False)
+            write_json_atomic(dump_all_path, list(all_posts.values()))
 
-    consec_fail = 0
     for p in range(start_page, max_page + 1):
-        try:
-            data = await browser_fetch_json(
-                page,
-                f'https://xueqiu.com/v4/statuses/user_timeline.json?user_id={user_id}&page={p}&count=20',
-                timeout_s=15,
-            )
-        except Exception as e:
-            print(f"  第{p}页异常: {e}")
-            data = None
-        if not data:
-            consec_fail += 1
-            print(f"  第{p}页无响应/超时（连续 {consec_fail} 次）")
-            if consec_fail >= 5:
-                print("  连续失败 5 次，保存进度并退出（再次运行自动续爬）")
-                save_progress(p)
+        data = None
+        for attempt in range(1, 6):
+            try:
+                data = await browser_fetch_json(
+                    page,
+                    f'https://xueqiu.com/v4/statuses/user_timeline.json?user_id={user_id}&page={p}&count=20',
+                    timeout_s=15,
+                )
+            except Exception as e:
+                print(f"  第{p}页异常（第 {attempt}/5 次）: {e}")
+            if data:
                 break
-            await asyncio.sleep(5 * consec_fail)
-            continue
-        consec_fail = 0
+            print(f"  第{p}页无响应/超时（第 {attempt}/5 次）")
+            if attempt < 5:
+                await asyncio.sleep(5 * attempt)
+        if not data:
+            print("  同一页连续失败 5 次，保存进度并退出（再次运行自动续爬）")
+            save_progress(p)
+            break
         if data.get('error_code'):
             print(f"  第{p}页错误: {data.get('error_code')} {data.get('error_description')}")
             save_progress(p)
@@ -296,6 +309,8 @@ async def fetch_all_timeline(page, user_id, keywords, progress_path, dump_all_pa
         statuses = data.get('statuses', [])
         if not statuses:
             print(f"  第{p}页空，结束")
+            if os.path.exists(progress_path):
+                os.remove(progress_path)
             break
         prev_found = found
         process(data)
@@ -314,8 +329,7 @@ async def fetch_all_timeline(page, user_id, keywords, progress_path, dump_all_pa
 
     # 最后一次落盘全量缓存
     if dump_all_path:
-        with open(dump_all_path, 'w', encoding='utf-8') as f:
-            json.dump(list(all_posts.values()), f, ensure_ascii=False)
+        write_json_atomic(dump_all_path, list(all_posts.values()))
         print(f"  全量缓存 → {dump_all_path}（{len(all_posts)} 条）")
     print(f"\n完成：扫描 {total_posts} 条，命中 {found} 条")
     return collected
@@ -366,7 +380,8 @@ def parse_args():
 
 
 def filter_from_cache(cache_path, keywords, user_id):
-    posts = json.load(open(cache_path))
+    with open(cache_path, encoding='utf-8') as handle:
+        posts = json.load(handle)
     out = []
     for p in posts:
         if is_match((p.get('title','') + ' ' + p.get('text','')), keywords):
@@ -405,6 +420,12 @@ async def main():
     print(f"雪球爬虫 | user_id={args.user_id} | keywords={keywords} | dump_all={args.dump_all}")
     print("=" * 60)
 
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError:
+        print("需要安装 Playwright 才能联网爬取；--from-cache 离线模式不需要它")
+        return 2
+
     async with async_playwright() as pw:
         session = await load_with_state(pw, args.state_path, args.user_id)
         if not session:
@@ -427,7 +448,8 @@ async def main():
         with open(args.output, 'w', encoding='utf-8') as f:
             f.write(format_md(collected, args.user_id, keywords))
         print(f"Markdown  → {args.output}")
+    return 0
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    sys.exit(asyncio.run(main()) or 0)

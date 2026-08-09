@@ -22,6 +22,8 @@ Requires Python >= 3.7.
 """
 
 import argparse
+import contextlib
+import io
 import json
 import math
 import os
@@ -40,25 +42,25 @@ _CTX = Context(prec=28, rounding=ROUND_HALF_EVEN)
 # 例：收入：1,239亿元、PE 18.8x、毛利率 56%、市值 ~$5,670亿
 _PATTERNS = [
     # 百分比
-    (r'([\d,，\.]+)\s*%',                        '%',    'percent'),
+    (r'([+\-]?[\d,，\.]+)\s*%',                '%',    'percent'),
     # 亿元/亿美元/亿港元
-    (r'([\d,，\.]+)\s*亿(元|美元|港元|RMB|USD|HKD)?', '亿',    'hundred_million'),
+    (r'([+\-]?[\d,，\.]+)\s*亿(元|美元|港元|RMB|USD|HKD)?', '亿', 'hundred_million'),
     # 倍数 PE/PB/PS
-    (r'([\d,，\.]+)\s*[xX倍]',                   'x',    'multiple'),
+    (r'([+\-]?[\d,，\.]+)\s*[xX倍]',           'x',    'multiple'),
     # 万亿
-    (r'([\d,，\.]+)\s*万亿',                      '万亿', 'trillion'),
+    (r'([+\-]?[\d,，\.]+)\s*万亿',             '万亿', 'trillion'),
     # 美元绝对值（B/T）
-    (r'\$\s*([\d,，\.]+)\s*([BMT亿])',             '$',    'usd_abs'),
+    (r'\$\s*([+\-]?[\d,，\.]+)\s*([BMT亿])', '$',    'usd_abs'),
     # 纯整数（如市值、收入、用户数等，出现在表格 | 里）
-    (r'\|\s*[~约]?\$?([\d,，\.]+)\s*\|',          '',     'table_num'),
+    (r'\|\s*[~约]?\$?([+\-]?[\d,，\.]+)\s*\|', '', 'table_num'),
 ]
 
 _LABEL_RE = re.compile(
-    r'(?P<label>[^\|\n：:]{2,25})[：:\s]+[~约]?\$?(?P<num>[\d,，\.]+)\s*(?P<unit>亿[元美港]?元?|万亿|[xX倍]|%|[BMT])?'
+    r'(?P<label>[^\|\n：:]{2,25})[：:\s]+[~约]?\$?(?P<num>[+\-]?[\d,，\.]+)\s*(?P<unit>亿[元美港]?元?|万亿|[xX倍]|%|[BMT])?'
 )
 
 _TABLE_ROW_RE = re.compile(
-    r'\|\s*(?P<label>[^|]{1,40})\s*\|\s*[~约]?\$?(?P<num>[\d,，\.]+)\s*(?P<unit>亿[元美港]?元?|万亿|[xX倍]|%|[BMT])?\s*\|'
+    r'\|\s*(?P<label>[^|]{1,40})\s*\|\s*[~约]?\$?(?P<num>[+\-]?[\d,，\.]+)\s*(?P<unit>亿[元美港]?元?|万亿|[xX倍]|%|[BMT])?\s*\|'
 )
 
 
@@ -99,27 +101,44 @@ def _is_valid_label(label: str) -> bool:
 
 # 两列表格行：| 标签 | 数值 unit |（专为财务报告的 KV 表设计）
 _KV_TABLE_RE = re.compile(
-    r'^\|\s*(?P<label>[^|*\n]{2,40}?)\s*\|\s*[~约]?\$?(?P<num>[\d,，\.]+)\s*'
+    r'^\|\s*(?P<label>[^|*\n]{2,40}?)\s*\|\s*[~约]?\$?(?P<num>[+\-]?[\d,，\.]+)\s*'
     r'(?P<unit>亿[元美港]?元?|万亿|[xX倍]|%|[BMT亿])?\s*[\|（\(]'
 )
 
 # 带标签的 KV 行：标签：数值 单位
 _KV_LABEL_RE = re.compile(
     r'(?P<label>[\u4e00-\u9fa5A-Za-z][^\|\n：:*]{1,30})[：:]\s*[~约]?\$?'
-    r'(?P<num>[\d,，\.]+)\s*(?P<unit>亿[元美港]?元?|万亿|[xX倍]|%|[BMT])?'
+    r'(?P<num>[+\-]?[\d,，\.]+)\s*(?P<unit>亿[元美港]?元?|万亿|[xX倍]|%|[BMT])?'
 )
+
+
+def _split_md_row(line: str) -> list:
+    """Split a Markdown table row without collapsing internal empty cells."""
+    cells = line.strip().split('|')
+    if cells and cells[0].strip() == '':
+        cells = cells[1:]
+    if cells and cells[-1].strip() == '':
+        cells = cells[:-1]
+    return [cell.strip().strip('*_~').strip() for cell in cells]
 
 
 def _parse_md_tables(lines: list) -> list:
     """解析 Markdown 中所有表格，返回 (row_label, col_header, value, unit, lineno, raw) 列表。"""
     results = []
     i = 0
+    in_code = False
     while i < len(lines):
         line = lines[i].strip()
+        if line.startswith('```'):
+            in_code = not in_code
+            i += 1
+            continue
+        if in_code:
+            i += 1
+            continue
         # 检测表头行（含 | 且不是分隔行）
         if '|' in line and not re.match(r'^\|[\-\s\|:]+\|$', line):
-            headers_raw = [h.strip().strip('*_').strip() for h in line.split('|')]
-            headers_raw = [h for h in headers_raw if h]
+            headers_raw = _split_md_row(line)
             # 下一行应是分隔行
             if i + 1 < len(lines) and re.match(r'^\|[\-\s\|:]+\|$', lines[i+1].strip()):
                 i += 2  # 跳过分隔行
@@ -128,8 +147,7 @@ def _parse_md_tables(lines: list) -> list:
                     dline = lines[i].strip()
                     if not dline or not dline.startswith('|'):
                         break
-                    cells = [c.strip().strip('*_~').strip() for c in dline.split('|')]
-                    cells = [c for c in cells if c != '']
+                    cells = _split_md_row(dline)
                     if len(cells) < 2:
                         i += 1
                         continue
@@ -138,13 +156,13 @@ def _parse_md_tables(lines: list) -> list:
                         col_header = headers_raw[col_idx] if col_idx < len(headers_raw) else f'列{col_idx}'
                         # 提取 cell 中的数字+单位
                         m = re.search(
-                            r'[~约]?\$?([\d,，\.]+)\s*(亿[元美港]?元?|万亿|[xX倍]|%|[BMT])?',
+                            r'[~约]?\$?([+\-]?[\d,，\.]+)\s*(亿[元美港]?元?|万亿|[xX倍]|%|[BMT])?',
                             cell
                         )
                         if m:
                             val = _clean_num(m.group(1))
                             unit = (m.group(2) or '').strip()
-                            if val and val != 0 and val < 1e15:
+                            if val is not None and abs(val) < 1e15:
                                 results.append((row_label, col_header, val, unit, i + 1, dline))
                     i += 1
                 continue
@@ -170,7 +188,7 @@ def extract_data_points(md_text: str) -> list:
         label = re.sub(r'[\*_`]+', '', label).strip()
         if not _is_valid_label(label):
             return
-        if val is None or val == 0 or val > 1e15:
+        if val is None or abs(val) > 1e15:
             return
         # 过滤纯年份/季度
         if re.fullmatch(r'(20\d{2}|Q[1-4]|\d{4}\s*Q[1-4])', label.strip()):
@@ -228,6 +246,8 @@ def extract_data_points(md_text: str) -> list:
 
 def sample_points(points: list, ratio: float = 0.15, seed: int = None) -> list:
     """随机抽取 ratio 比例的数据点，最少 3 个，最多 30 个。"""
+    if not 0 < ratio <= 1:
+        raise ValueError('ratio must be greater than 0 and no more than 1')
     n = max(3, min(30, math.ceil(len(points) * ratio)))
     n = min(n, len(points))
     rng = Random(seed)
@@ -310,14 +330,14 @@ def render_verdict(results: list, report_name: str = "") -> dict:
 
         # 判断
         pass1 = diff1 <= _TOLERANCE
-        pass2 = (diff2 is None) or (diff2 <= _TOLERANCE)
+        pass2 = diff2 is not None and diff2 <= _TOLERANCE
 
-        if pass1 and pass2:
+        if pass1 and (diff2 is None or pass2):
             status = f'{GREEN}✅ 通过{RESET}'
             detail = f'{source}: {fetched:.2f} (偏差 {diff1*100:.2f}%)'
             if diff2 is not None:
                 detail += f'  |  {source2}: {fetched2:.2f} (偏差 {diff2*100:.2f}%)'
-        elif not pass1 and not pass2:
+        elif not pass1 and (diff2 is None or not pass2):
             status = f'{RED}❌ 不通过{RESET}'
             detail = f'{source}: {fetched:.2f} (偏差 {diff1*100:.2f}%)'
             if diff2 is not None:
@@ -363,9 +383,14 @@ def render_verdict(results: list, report_name: str = "") -> dict:
     print(f'  抽检总数: {total}  |  通过: {GREEN}{pass_count}{RESET}  |  警告: {YELLOW}{warn_count}{RESET}  |  不通过: {RED}{fail_count}{RESET}')
     print()
 
-    if fail_count == 0:
+    if total == 0:
+        print(f'{BOLD}{RED}【打回】没有已核验数据，不能准出报告。{RESET}')
+        verdict = 'FAIL'
+        summary = '没有已核验数据'
+    elif fail_count == 0:
         print(f'{BOLD}{GREEN}【准出】所有抽检数据通过，报告可发布。{RESET}')
         verdict = 'PASS'
+        summary = '所有已核验数据通过'
     else:
         print(f'{BOLD}{RED}【打回】{fail_count} 个数据点核验不通过，报告需修正后重审。{RESET}')
         print()
@@ -379,6 +404,7 @@ def render_verdict(results: list, report_name: str = "") -> dict:
             print(f'     原文：{fi["raw_text"][:80]}')
             print()
         verdict = 'FAIL'
+        summary = f'{fail_count} 个数据点核验不通过'
 
     if warn_count > 0:
         print(f'{YELLOW}注意：{warn_count} 个数据点两来源结果不一致（超过1%），可能是口径差异（GAAP/Non-GAAP或汇率），请人工复核。{RESET}')
@@ -395,6 +421,7 @@ def render_verdict(results: list, report_name: str = "") -> dict:
         'total': total,
         'fail_items': fail_items,
         'warn_items': warn_items,
+        'summary': summary,
     }
 
 
@@ -457,7 +484,11 @@ def main():
             text = f.read()
 
         all_points = extract_data_points(text)
-        sampled = sample_points(all_points, ratio=args.ratio, seed=args.seed)
+        try:
+            sampled = sample_points(all_points, ratio=args.ratio, seed=args.seed)
+        except ValueError as exc:
+            print(f'❌ 输入错误: {exc}', file=sys.stderr)
+            sys.exit(2)
 
         print('=' * 70)
         print(f'报告数据抽检清单')
@@ -504,12 +535,16 @@ def main():
         except json.JSONDecodeError as e:
             print(f'❌ JSON 解析失败: {e}', file=sys.stderr)
             sys.exit(1)
-
-        report_name = args.report or ''
-        outcome = render_verdict(results, report_name=report_name)
+        if not isinstance(results, list):
+            print('❌ results 必须是 JSON 数组', file=sys.stderr)
+            sys.exit(2)
 
         if args.output_json:
+            with contextlib.redirect_stdout(io.StringIO()):
+                outcome = render_verdict(results, report_name=args.report or '')
             print(json.dumps(outcome, ensure_ascii=False, indent=2))
+        else:
+            outcome = render_verdict(results, report_name=args.report or '')
 
         # 非零退出码表示打回，方便 CI/脚本判断
         sys.exit(0 if outcome['verdict'] == 'PASS' else 1)

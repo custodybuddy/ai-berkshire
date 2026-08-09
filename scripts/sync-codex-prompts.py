@@ -68,7 +68,9 @@ def main() -> None:
 
     count = 0
     stale: list[str] = []
-    for source in sorted(CLAUDE_SKILLS.glob("*.md")):
+    sources = sorted(CLAUDE_SKILLS.glob("*.md"))
+    expected_names = {source.name for source in sources}
+    for source in sources:
         target = CODEX_PROMPTS / source.name
         content = prompt_for(source)
         if check:
@@ -77,6 +79,14 @@ def main() -> None:
         else:
             target.write_text(content, encoding="utf-8")
         count += 1
+
+    for target in sorted(CODEX_PROMPTS.glob("*.md")):
+        if target.name in expected_names:
+            continue
+        if check:
+            stale.append(str(target.relative_to(ROOT)))
+        else:
+            target.unlink()
 
     if check:
         if stale:

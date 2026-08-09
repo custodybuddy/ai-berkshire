@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -101,7 +102,9 @@ def main() -> None:
 
     count = 0
     stale: list[str] = []
-    for source in sorted(CLAUDE_SKILLS.glob("*.md")):
+    sources = sorted(CLAUDE_SKILLS.glob("*.md"))
+    expected_names = {source.stem for source in sources}
+    for source in sources:
         name = source.stem
         source_text = source.read_text(encoding="utf-8")
         target_dir = CODEX_SKILLS / name
@@ -116,6 +119,20 @@ def main() -> None:
             target_dir.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8")
         count += 1
+
+    # Remove only artifacts that carry this generator's marker. Hand-written
+    # Codex-only skills intentionally remain outside the canonical name set.
+    for target in sorted(CODEX_SKILLS.glob("*/SKILL.md")):
+        if target.parent.name in expected_names:
+            continue
+        existing = target.read_text(encoding="utf-8")
+        if "## Codex adapter note" not in existing or "This skill is generated from `skills/" not in existing:
+            continue
+        relative = str(target.relative_to(ROOT))
+        if check:
+            stale.append(relative)
+        else:
+            shutil.rmtree(target.parent)
 
     if check:
         if stale:

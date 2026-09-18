@@ -7,6 +7,8 @@
 - 或：`腾讯 500股 @480港元, 美团 1000股 @130港元, ...`
 - 或：`我的持仓`（如果已有保存的组合文件 `reports/portfolio-latest.md`）
 
+如果输入涉及加拿大个人账户（RDSP、TFSA、HISA、GIC），先执行 `skills/canada-registered-accounts.md` 以确认账户规则、税务包装、政府补助、流动性和证据状态，再回到本 Skill 做全组合配置。个人资料必须留在独立的私人工作区，不得写入本仓库的 `reports/`。
+
 > "分散投资是对无知的保护。如果你知道自己在做什么，分散投资就没有意义。" —— 巴菲特
 >
 > "我这辈子见过的真正好的投资机会，十个手指就数得完。" —— 李录
@@ -32,7 +34,9 @@
 
 如果输入只有比例没有金额，按比例分析即可。
 
-同时检查是否存在已有的组合文件（`reports/portfolio-latest.md`），如有则读取并更新。
+同时明确区分**现有资产**与**新增资金**，并计算配置后的合并组合；不得只分析新增资金。
+
+仅对非个人、可公开的示例组合检查已有组合文件 `reports/portfolio-latest.md`。个人组合只从用户授权的私人工作区读取经过最小化和脱敏的数据，并沿用 `canada-registered-accounts` 的四类证据标签：Verified fact、Calculated fact、Assumption、Unknown。
 
 ### 第二步：获取最新数据
 
@@ -173,7 +177,9 @@
 
 ### 第七步：保存组合文件
 
-将组合信息写入 `reports/portfolio-latest.md`，包含：
+非个人、可公开的示例组合可以写入 `reports/portfolio-latest.md`。个人组合必须使用 `templates/personal-portfolio-review.md`，并写入独立私人工作区的 `07-reports/`，不得写入本仓库。
+
+保存内容包括：
 - 最新持仓表
 - 本次审视日期和结论
 - 调仓记录（追加）

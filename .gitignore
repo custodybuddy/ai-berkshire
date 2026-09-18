@@ -23,3 +23,11 @@ reports/美团/command-log.jsonl
 
 # 组合报告只存本地，不公开
 reports/portfolio-latest.md
+
+# ===== 私人投资者资料（纵深防护；最好存放在仓库之外） =====
+# 精确目录规则覆盖其中的截图、对账单和私人 PDF；不要全局忽略 *.pdf
+/private-investor-workspace/
+/private-investor-workspaces/
+**/03-private-source-documents/
+**/bank-screenshots/
+**/account-statements/

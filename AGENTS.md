@@ -12,6 +12,10 @@ validation tools. Keep compatibility with both Claude Code and Codex users.
 - `codex-prompts/*.md`: generated Codex custom prompts for slash-command
   style entry points. These are a compatibility layer; skills remain preferred.
 - `tools/*.py`: shared financial validation and data tools used by both systems.
+- `templates/personal-portfolio-review.md`: reusable structure for private
+  whole-portfolio analysis; completed personal reports do not belong here.
+- `docs/private-investor-workspace.md`: separation and handling guidance for
+  private investor evidence.
 - `reports/`: research outputs. Do not rewrite unrelated reports while changing
   tooling or skills.
 - `scripts/sync-codex-skills.py`: regenerates Codex skills from `skills/*.md`.
@@ -51,7 +55,19 @@ validation tools. Keep compatibility with both Claude Code and Codex users.
 - Use report audit tooling before treating generated research as publishable:
   `python3 tools/report_audit.py ...`
 - Clearly label low-confidence conclusions, incomplete data, and source gaps.
+- For personal portfolio work, preserve the four evidence classes: verified
+  facts, calculated facts based only on verified inputs, assumptions, and
+  unknowns. Never promote an assumption without new direct evidence.
 - This project is for learning and research, not investment advice.
+
+## Personal Financial Data
+
+- Keep personal workspaces, bank screenshots, statements, account numbers,
+  names, tax identifiers, and investor-specific reports outside this reusable
+  repository.
+- Use `docs/private-investor-workspace.md` for the recommended private layout.
+- Treat `.gitignore` as accidental-commit protection, not as encryption or
+  access control.
 
 ## Editing Rules
 

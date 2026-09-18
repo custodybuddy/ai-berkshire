@@ -12,7 +12,7 @@
 
 一个人 + Claude Code / Codex = 一个投研团队。
 
-[实盘业绩](#real-track-record) · [为什么不能直接问AI](#为什么不能直接问-ai) · [Skills 一览](#skills-一览18个) · [快速开始](#快速开始) · [实战报告](#实战研究报告) · [设计理念](#设计理念)
+[实盘业绩](#real-track-record) · [为什么不能直接问AI](#为什么不能直接问-ai) · [Skills 一览](#skills-一览19个) · [快速开始](#快速开始) · [实战报告](#实战研究报告) · [设计理念](#设计理念)
 
 ---
 
@@ -166,13 +166,13 @@ AI Berkshire 确保：**同样的输入 → 结构一致、深度一致的输出
 > 图源：[`assets/architecture.mmd`](assets/architecture.mmd)（Mermaid 可编辑源码）
 
 **三层设计哲学**：
-- **Skill 层**：把"你要做什么"抽象成 18 个明确入口——深度研究、财报分析、行业筛选、持仓管理、思维工具，按场景选用
-- **Agent 层**：每个 skill 内部都是 4 个 Agent 并行——它们各自独立搜索、独立判断、互相挑战，最后由 Team Lead 综合
+- **Skill 层**：把"你要做什么"抽象成 19 个明确入口——深度研究、财报分析、行业筛选、持仓管理、思维工具，按场景选用
+- **Agent 层**：深度投研类 skill 可按任务启动多个 Agent 并行研究；规则校验、账户分析等流程型 skill 采用单流程执行，最后都由主流程汇总判断
 - **工具层**：精确计算、实时检索、报告抽检——保证每份报告的数据严谨性可验证
 
 ---
 
-## Skills 一览（18个）
+## Skills 一览（19个）
 
 ### 🔬 深度研究类
 
@@ -206,6 +206,7 @@ AI Berkshire 确保：**同样的输入 → 结构一致、深度一致的输出
 | Skill | 用途 | 适合场景 |
 |-------|------|---------|
 | [`/portfolio-review`](skills/portfolio-review.md) | 组合管理与优化 | 从"研究公司"升级到"管理组合"——仓位、集中度、再平衡 |
+| [`/canada-registered-accounts`](skills/canada-registered-accounts.md) | 加拿大账户与现金配置 | RDSP、TFSA、HISA、GIC、补助、税务包装与流动性分析 |
 | [`/thesis-tracker`](skills/thesis-tracker.md) | 投资论文追踪 | 买入后的纪律系统：持续跟踪论文是否被证伪 |
 | [`/news-pulse`](skills/news-pulse.md) | 股价异动快速归因 | 股价大涨/大跌时10分钟搞清"发生了什么" |
 
@@ -216,6 +217,8 @@ AI Berkshire 确保：**同样的输入 → 结构一致、深度一致的输出
 | [`/dyp-ask`](skills/dyp-ask.md) | 段永平问答 | 以段永平的方式思考任何问题——商业、投资、人生 |
 | [`/financial-data`](skills/financial-data.md) | 财务数据获取与交叉验证规范 | 确保关键数据来自2个独立来源，误差>1%告警 |
 | [`/wechat-article`](skills/wechat-article.md) | 微信公众号文章 | 作者、编辑、读者三Agent协作，产出可发布文章 |
+
+加拿大个人组合的推荐流程是：`quality-screen` / `investment-research` 负责公司质量与估值，`canada-registered-accounts` 负责账户规则、补助、税务包装和流动性，`portfolio-review` 负责把现有资产与新增资金合并后比较配置情景。个人证据与报告应放在[独立私人工作区](docs/private-investor-workspace.md)，并使用[`personal-portfolio-review.md`](templates/personal-portfolio-review.md)模板；银行截图、对账单和身份信息不得进入本仓库。
 
 ---
 
@@ -326,6 +329,7 @@ cd ai-berkshire
 
 # 持仓管理
 /portfolio-review 腾讯30%, 美团20%, 茅台20%, 现金30%
+/canada-registered-accounts 分析 RDSP、TFSA、HISA 和 GIC 的配置情景
 /thesis-tracker 拼多多
 /news-pulse 腾讯
 
@@ -341,6 +345,7 @@ cd ai-berkshire
 使用 earnings-review 分析 PDD 2025年报
 使用 industry-funnel 筛选 AI算力
 使用 bottleneck-hunter 扫描 AI基础设施瓶颈
+使用 canada-registered-accounts 分析加拿大注册账户与现金配置
 使用 wechat-article 写美团投研文章
 ```
 
